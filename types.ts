@@ -49,6 +49,14 @@ export interface Enemy {
   type: 'BOSS' | 'MINION';
 }
 
+export interface Item {
+  x: number;
+  y: number;
+  life: number; // Remaining life in ms
+  maxLife: number;
+  type: 'SCORE';
+}
+
 export interface Particle {
   x: number;
   y: number;

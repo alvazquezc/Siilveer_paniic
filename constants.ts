@@ -13,11 +13,13 @@ export const COLOR_PLAYER = '#38bdf8'; // Sky 400
 export const COLOR_BOSS = '#e11d48'; // Rose 600
 export const COLOR_BOSS_CORE = '#881337'; // Rose 900
 export const COLOR_PARTICLE = '#38bdf8'; 
+export const COLOR_ITEM = '#fbbf24'; // Amber 400
 
 // Game logic
 export const PLAYER_SPEED_MS = 60; // Update interval for player movement
 export const BOSS_BASE_SPEED = 0.2; // Logical grid units per frame
 export const INVULNERABILITY_TIME = 3000; // 3 Seconds blinking
+export const ITEM_LIFETIME = 6000; // 6 seconds
 
 // COMBO SYSTEM
 export const COMBO_TIMEOUT_MS = 2500; // Increased to 2.5s for easier chaining

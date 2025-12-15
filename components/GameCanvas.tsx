@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { 
   GRID_WIDTH, GRID_HEIGHT, TILE_SIZE, 
-  COLOR_SAFE, COLOR_TRAIL, COLOR_BOSS, COLOR_BOSS_CORE, COLOR_PARTICLE, COLOR_PLAYER, 
-  INVULNERABILITY_TIME, IDLE_TIMEOUT_MS, COMBO_TIMEOUT_MS, EXCLAMATIONS, TRANSLATIONS
+  COLOR_SAFE, COLOR_TRAIL, COLOR_BOSS, COLOR_BOSS_CORE, COLOR_PARTICLE, COLOR_PLAYER, COLOR_ITEM,
+  INVULNERABILITY_TIME, IDLE_TIMEOUT_MS, COMBO_TIMEOUT_MS, ITEM_LIFETIME, EXCLAMATIONS, TRANSLATIONS
 } from '../constants';
-import { Point, Enemy, Player, LevelConfig, GameStats, Particle, FlashEffect, FloatingText, Language } from '../types';
+import { Point, Enemy, Player, LevelConfig, GameStats, Particle, FlashEffect, FloatingText, Language, Item } from '../types';
 
 interface GameCanvasProps {
   level: LevelConfig;
@@ -13,6 +13,7 @@ interface GameCanvasProps {
   onStatsUpdate: (stats: GameStats) => void;
   onLivesChange: (lives: number) => void;
   onAreaCapture: () => void;
+  onItemCollect: () => void; // New prop
   direction: Point;
   isPaused: boolean; 
   language: Language;
@@ -30,6 +31,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onStatsUpdate,
   onLivesChange,
   onAreaCapture,
+  onItemCollect,
   direction,
   isPaused,
   language
@@ -41,6 +43,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const gridRef = useRef<TileType[][]>([]);
   const playerRef = useRef<Player>({ x: 0, y: 0, lives: 3, isDrawing: false, invulnerableUntil: 0, lastMoveTime: 0 });
   const enemiesRef = useRef<Enemy[]>([]);
+  const itemsRef = useRef<Item[]>([]); // New items ref
   const statsRef = useRef<GameStats>({ areaRevealed: 0, timeElapsed: 0, score: 0 });
   
   // Timing & Logic Refs
@@ -48,7 +51,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const trailRef = useRef<Point[]>([]);
   const particlesRef = useRef<Particle[]>([]);
   const flashEffectsRef = useRef<FlashEffect[]>([]);
-  const floatingTextsRef = useRef<FloatingText[]>([]); // For "WOW", "x2"
+  const floatingTextsRef = useRef<FloatingText[]>([]);
   const directionRef = useRef<Point>(direction);
 
   // Combo System Refs
@@ -133,6 +136,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
     enemiesRef.current = newEnemies;
 
+    itemsRef.current = []; // Clear items
     trailRef.current = [];
     particlesRef.current = [];
     flashEffectsRef.current = [];
@@ -187,11 +191,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     statsRef.current.timeElapsed += dt / 1000;
 
     // COMBO CHECKER
-    // Check for idle movement
     if (nowTs - comboRef.current.lastMoveTime > IDLE_TIMEOUT_MS) {
         breakCombo();
     }
-    // Check for idle capture (if combo active)
     if (comboRef.current.count > 1 && nowTs - comboRef.current.lastActionTime > COMBO_TIMEOUT_MS) {
         breakCombo();
     }
@@ -226,7 +228,50 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
     }
 
-    // 4. Move Player
+    // 4. Item Logic (Spawn & Update)
+    // Spawn chance approx once every few seconds
+    if (Math.random() < 0.003 && itemsRef.current.length < 3) {
+        // Find a random spot
+        const rx = Math.floor(Math.random() * (GRID_WIDTH - 2)) + 1;
+        const ry = Math.floor(Math.random() * (GRID_HEIGHT - 2)) + 1;
+        // Ideally in hidden area to force risk, but not on trail
+        if (grid[ry][rx] === 1 || grid[ry][rx] === 0) {
+             itemsRef.current.push({
+                 x: rx,
+                 y: ry,
+                 type: 'SCORE',
+                 life: ITEM_LIFETIME,
+                 maxLife: ITEM_LIFETIME
+             });
+        }
+    }
+
+    // Update Items
+    for (let i = itemsRef.current.length - 1; i >= 0; i--) {
+        const item = itemsRef.current[i];
+        item.life -= dt;
+        if (item.life <= 0) {
+            itemsRef.current.splice(i, 1);
+            continue;
+        }
+
+        // Check Collision with Player
+        // Simple distance check in grid units
+        const dx = player.x - item.x;
+        const dy = player.y - item.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < 1.5) {
+             // Collect!
+             itemsRef.current.splice(i, 1);
+             onItemCollect();
+             statsRef.current.score += 500;
+             spawnFloatingText(player.x, player.y - 1, "+500", COLOR_ITEM, 1.2);
+             spawnParticles(item.x, item.y, COLOR_ITEM, 10);
+        }
+    }
+
+    // 5. Move Player
     if (Date.now() - (playerRef.current.lastMoveTime || 0) > 60) {
         if (currentDirection.x !== 0 || currentDirection.y !== 0) {
             const nextX = player.x + currentDirection.x;
@@ -263,7 +308,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
     }
 
-    // 5. Move Enemies (Loop)
+    // 6. Move Enemies (Loop)
     for (const enemy of enemies) {
         let nextX = enemy.x + enemy.vx;
         let nextY = enemy.y + enemy.vy;
@@ -301,7 +346,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
     }
 
-    // 6. Update Stats
+    // 7. Update Stats
     if (Math.random() > 0.9) {
          onStatsUpdate({...statsRef.current});
     }
@@ -503,7 +548,36 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
     ctx.fill();
 
-    // 4. Draw Player
+    // 4. Draw Items
+    for (const item of itemsRef.current) {
+        const itemLifeRatio = item.life / item.maxLife;
+        const ix = item.x * TILE_SIZE + TILE_SIZE/2;
+        const iy = item.y * TILE_SIZE + TILE_SIZE/2;
+        
+        ctx.fillStyle = COLOR_ITEM;
+        ctx.shadowColor = COLOR_ITEM;
+        ctx.shadowBlur = 10 * Math.sin(nowTs/100) + 15;
+        
+        // Draw Star/Diamond shape
+        const size = TILE_SIZE * 0.8 * (0.8 + 0.2 * Math.sin(nowTs / 150));
+        
+        ctx.beginPath();
+        ctx.moveTo(ix, iy - size);
+        ctx.lineTo(ix + size/2, iy);
+        ctx.lineTo(ix, iy + size);
+        ctx.lineTo(ix - size/2, iy);
+        ctx.closePath();
+        ctx.fill();
+
+        // Warning/Blink if about to expire
+        if (itemLifeRatio < 0.3 && Math.floor(nowTs / 100) % 2 === 0) {
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+    }
+
+    // 5. Draw Player
     const isInvulnerable = nowTs < player.invulnerableUntil;
     const opacity = isInvulnerable ? (Math.floor(nowTs / 100) % 2 === 0 ? 0.3 : 1) : 1;
     const px = player.x * TILE_SIZE + TILE_SIZE/2;
@@ -539,7 +613,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
 
-    // 5. Draw Enemies
+    // 6. Draw Enemies
     const pulse = Math.sin(nowTs / 200) * 0.2 + 1; 
     
     for (const enemy of enemiesRef.current) {
@@ -570,7 +644,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.shadowBlur = 0;
     }
 
-    // 6. Draw Particles
+    // 7. Draw Particles
     for (const p of particlesRef.current) {
         ctx.globalAlpha = p.life / p.maxLife;
         ctx.fillStyle = p.color;
@@ -581,7 +655,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
     ctx.globalAlpha = 1;
 
-    // 7. Draw Floating Texts (Combos)
+    // 8. Draw Floating Texts (Combos)
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.shadowBlur = 2;
@@ -604,7 +678,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
 
-    // 8. DRAW COMBO METER (Moved to Canvas for instant response)
+    // 9. DRAW COMBO METER (Moved to Canvas for instant response)
     if (comboRef.current.count > 1) {
         const timeLeft = Math.max(0, COMBO_TIMEOUT_MS - (nowTs - comboRef.current.lastActionTime));
         const idleTimeLeft = Math.max(0, IDLE_TIMEOUT_MS - (nowTs - comboRef.current.lastMoveTime));

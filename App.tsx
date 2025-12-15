@@ -208,6 +208,11 @@ export default function App() {
       jukeboxRef.current?.playCaptureSound();
   };
 
+  const handleItemCollect = () => {
+      jukeboxRef.current?.playItemSound();
+      triggerSilverMood('EXCITED');
+  };
+
   // Helper component for the Arcade Logo
   const ArcadeLogo = () => (
     <div className="relative mb-6 transform -skew-x-6 rotate-[-5deg] hover:scale-105 transition-transform duration-500 cursor-default">
@@ -425,6 +430,7 @@ export default function App() {
                 direction={direction}
                 onLivesChange={handleLivesChange}
                 onAreaCapture={handleAreaCapture}
+                onItemCollect={handleItemCollect}
                 isPaused={status === GameStatus.PAUSED}
                 language={language}
             />

@@ -5,6 +5,7 @@ import { GameStatus } from '../types';
 export interface RetroJukeboxRef {
   playDamageSound: () => void;
   playCaptureSound: () => void;
+  playItemSound: () => void;
 }
 
 interface RetroJukeboxProps {
@@ -16,7 +17,7 @@ interface RetroJukeboxProps {
 const NOTE = {
   C3: 130.8, D3: 146.8, E3: 164.8, F3: 174.6, G3: 196.0, Gs3: 207.7, A3: 220.0, B3: 246.9,
   C4: 261.6, Cs4: 277.2, D4: 293.7, Ds4: 311.1, Eb4: 311.1, E4: 329.6, F4: 349.2, Fs4: 370.0, G4: 392.0, Gs4: 415.3, A4: 440.0, As4: 466.2, B4: 493.9,
-  C5: 523.3, D5: 587.3, Ds5: 622.3, E5: 659.3, F5: 698.5, G5: 784.0, C6: 1046.5
+  C5: 523.3, D5: 587.3, Ds5: 622.3, E5: 659.3, F5: 698.5, G5: 784.0, A5: 880.0, B5: 987.8, C6: 1046.5, E6: 1318.5
 };
 
 // Song Patterns
@@ -100,10 +101,14 @@ export const RetroJukebox = forwardRef<RetroJukeboxRef, RetroJukeboxProps>(({ le
     playCaptureSound: () => {
       if (!audioContextRef.current || !isPlaying) return;
       playSfx('capture');
+    },
+    playItemSound: () => {
+      if (!audioContextRef.current || !isPlaying) return;
+      playSfx('item');
     }
   }));
 
-  const playSfx = (type: 'damage' | 'capture') => {
+  const playSfx = (type: 'damage' | 'capture' | 'item') => {
     if (!audioContextRef.current) return;
     const ctx = audioContextRef.current;
     const osc = ctx.createOscillator();
@@ -141,6 +146,17 @@ export const RetroJukebox = forwardRef<RetroJukeboxRef, RetroJukeboxProps>(({ le
 
       osc.start(now);
       osc.stop(now + 0.3);
+    } else if (type === 'item') {
+      // Item Sound: Shiny bell like
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(NOTE.B5, now);
+      osc.frequency.linearRampToValueAtTime(NOTE.E6, now + 0.1);
+      
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+      osc.start(now);
+      osc.stop(now + 0.4);
     }
   };
 
