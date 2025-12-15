@@ -1,4 +1,4 @@
-import { LevelConfig } from './types';
+import { LevelConfig, Language } from './types';
 
 // Grid Configuration
 export const GRID_WIDTH = 60;
@@ -19,7 +19,11 @@ export const PLAYER_SPEED_MS = 60; // Update interval for player movement
 export const BOSS_BASE_SPEED = 0.2; // Logical grid units per frame
 export const INVULNERABILITY_TIME = 3000; // 3 Seconds blinking
 
-// Using Pollinations.ai to generate Anime style images on the fly
+// COMBO SYSTEM
+export const COMBO_TIMEOUT_MS = 2500; // Increased to 2.5s for easier chaining
+export const IDLE_TIMEOUT_MS = 2000; // Increased to 2s before combo breaks from standing still
+
+// IMAGENES: 
 const getAnimeUrl = (prompt: string, seed: number) => 
   `https://image.pollinations.ai/prompt/anime%20style%20${encodeURIComponent(prompt)}%20masterpiece%20high%20quality%208k?width=800&height=600&nologo=true&seed=${seed}`;
 
@@ -28,6 +32,7 @@ export const SILVER_AVATAR = {
   NEUTRAL: getAnimeUrl("handsome man short black hair glasses goatee beard cool smile portrait", 901),
   EXCITED: getAnimeUrl("handsome man short black hair glasses goatee beard excited winking victory sign anime", 902),
   SAD: getAnimeUrl("man short black hair glasses goatee beard shocked scared dizzy anime face", 903),
+  DEFEATED: getAnimeUrl("handsome man short black hair glasses goatee beard lying on floor defeated knocked out dizzy eyes swirls anime", 904),
 };
 
 export const LEVELS: LevelConfig[] = [
@@ -108,3 +113,116 @@ export const TEASING_PHRASES = [
   "Cuidado con la retaguardia.",
   "Demasiado lento para mi gusto."
 ];
+
+// STATIC COMMENTARY (Offline Mode)
+export const COMMENTARY_WIN_ES = [
+  "¡Increíble! Tus reflejos son de otro planeta. 🚀",
+  "¡GG! Eso fue quirúrgico. ¿Eres un robot? 🤖",
+  "¡Destrucción total! El nivel no tuvo oportunidad. 🔥",
+];
+
+export const COMMENTARY_LOSE_ES = [
+  "¡Uff! Eso dolió de ver. Más suerte la próxima. 💀",
+  "¿Lag o falta de habilidad? Tú decides. 🤔",
+  "¡Casi! Pero en el arcade 'casi' no cuenta. ❌",
+];
+
+export const COMMENTARY_WIN_EN = [
+  "Incredible! Your reflexes are from another planet. 🚀",
+  "GG! That was surgical. Are you a robot? 🤖",
+  "Total destruction! The level didn't stand a chance. 🔥",
+];
+
+export const COMMENTARY_LOSE_EN = [
+  "Ouch! That hurt to watch. Better luck next time. 💀",
+  "Lag or lack of skill? You decide. 🤔",
+  "Almost! But 'almost' doesn't count in arcade. ❌",
+];
+
+export const COMMENTARY_WIN_FR = [
+  "Incroyable! Tes réflexes viennent d'une autre planète. 🚀",
+  "GG! C'était chirurgical. Es-tu un robot? 🤖",
+  "Destruction totale! Le niveau n'avait aucune chance. 🔥",
+];
+
+export const COMMENTARY_LOSE_FR = [
+  "Aïe! Ça faisait mal à voir. Plus de chance la prochaine fois. 💀",
+  "Lag ou manque de talent? À toi de décider. 🤔",
+  "Presque! Mais 'presque' ne compte pas ici. ❌",
+];
+
+export const EXCLAMATIONS = [
+  "WOW!", "SICK!", "RADICAL!", "SUPER!", "INSANE!", "OMG!", "HYPER!", "GODLIKE!"
+];
+
+export const TRANSLATIONS = {
+  ES: {
+    menu_start: "SELECCIONA NIVEL",
+    menu_scores: "MEJORES PUNTUACIONES",
+    menu_credits: "DESARROLLADO POR SIILVEER GAMES",
+    instructions: "Instrucciones: Corta zonas para revelar el fondo. ¡Evita los enemigos!",
+    level: "NIVEL",
+    score: "PUNTOS",
+    area: "AREA",
+    pause_title: "PAUSA",
+    pause_subtitle: "Juego detenido",
+    resume: "Reanudar",
+    quit: "Salir al Menú",
+    win_title: "Nivel Completado",
+    win_subtitle: "Presiona cualquier tecla...",
+    ai_comment: "Comentario IA",
+    game_over: "GAME OVER",
+    retry: "Reintentar",
+    exit: "Salir",
+    ready: "LISTO?",
+    go: "YA!",
+    broken: "ROTO!",
+    footer: "Usa flechas/WASD para moverte. Corta para revelar. 'P' para pausar."
+  },
+  EN: {
+    menu_start: "SELECT STAGE",
+    menu_scores: "HIGH SCORES",
+    menu_credits: "DEVELOPED BY SIILVEER GAMES",
+    instructions: "Instructions: Cut areas to reveal the background. Avoid enemies!",
+    level: "LEVEL",
+    score: "SCORE",
+    area: "AREA",
+    pause_title: "PAUSED",
+    pause_subtitle: "Game Stopped",
+    resume: "Resume",
+    quit: "Quit to Menu",
+    win_title: "Level Complete",
+    win_subtitle: "Press any key...",
+    ai_comment: "AI Commentary",
+    game_over: "GAME OVER",
+    retry: "Retry",
+    exit: "Exit",
+    ready: "READY?",
+    go: "GO!",
+    broken: "BROKEN!",
+    footer: "Use arrows/WASD to move. Cut to reveal. 'P' to pause."
+  },
+  FR: {
+    menu_start: "CHOISIR NIVEAU",
+    menu_scores: "MEILLEURS SCORES",
+    menu_credits: "DÉVELOPPÉ PAR SIILVEER GAMES",
+    instructions: "Instructions: Coupez les zones pour révéler le fond. Évitez les ennemis!",
+    level: "NIVEAU",
+    score: "SCORE",
+    area: "ZONE",
+    pause_title: "PAUSE",
+    pause_subtitle: "Jeu arrêté",
+    resume: "Reprendre",
+    quit: "Quitter",
+    win_title: "Niveau Terminé",
+    win_subtitle: "Appuyez sur une touche...",
+    ai_comment: "Commentaire IA",
+    game_over: "GAME OVER",
+    retry: "Réessayer",
+    exit: "Quitter",
+    ready: "PRÊT?",
+    go: "ALLEZ!",
+    broken: "CASSÉ!",
+    footer: "Utilisez flèches/WASD pour bouger. Coupez pour révéler. 'P' pour pause."
+  }
+};
