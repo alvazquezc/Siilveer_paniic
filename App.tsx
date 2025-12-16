@@ -128,8 +128,14 @@ export default function App() {
     });
   }, []);
 
-  // Auto-pause on blur (Essential for itch.io iframes)
+  // HTML5 VISIBILITY API & BLUR HANDLING
   useEffect(() => {
+    const handleVisibilityChange = () => {
+       if (document.hidden && status === GameStatus.PLAYING) {
+           setStatus(GameStatus.PAUSED);
+       }
+    };
+
     const handleBlur = () => {
       if (status === GameStatus.PLAYING) {
         setStatus(GameStatus.PAUSED);
@@ -141,6 +147,7 @@ export default function App() {
         window.focus();
     };
 
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleBlur);
     window.addEventListener('click', handleFocus);
     
@@ -148,6 +155,7 @@ export default function App() {
     window.focus();
 
     return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         window.removeEventListener('blur', handleBlur);
         window.removeEventListener('click', handleFocus);
     };

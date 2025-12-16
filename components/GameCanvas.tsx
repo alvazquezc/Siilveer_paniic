@@ -576,6 +576,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // OPTIMIZATION: Disable anti-aliasing for retro pixel-art style and performance
+    ctx.imageSmoothingEnabled = false;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const grid = gridRef.current;
     const player = playerRef.current;
@@ -586,6 +589,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     for (let y = 0; y < GRID_HEIGHT; y++) {
         for (let x = 0; x < GRID_WIDTH; x++) {
             if (grid[y][x] === 1) {
+                // Use floor for integer coordinates to prevent sub-pixel rendering blur
                 ctx.rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE + 0.5, TILE_SIZE + 0.5); 
             }
         }
