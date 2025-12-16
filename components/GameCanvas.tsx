@@ -13,7 +13,8 @@ interface GameCanvasProps {
   onStatsUpdate: (stats: GameStats) => void;
   onLivesChange: (lives: number) => void;
   onAreaCapture: () => void;
-  onItemCollect: () => void; // New prop
+  onItemCollect: () => void; 
+  onProximityUpdate: (intensity: number) => void; // New Prop
   direction: Point;
   isPaused: boolean; 
   language: Language;
@@ -32,6 +33,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onLivesChange,
   onAreaCapture,
   onItemCollect,
+  onProximityUpdate,
   direction,
   isPaused,
   language
@@ -73,6 +75,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   useEffect(() => {
     initGame();
     startIntroSequence();
+    return () => {
+        // Cleanup drone sound on unmount/level change
+        onProximityUpdate(0);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [level]); 
 
@@ -123,15 +129,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     gridRef.current = newGrid;
     playerRef.current = { x: 0, y: 0, lives: 3, isDrawing: false, invulnerableUntil: 0, lastMoveTime: 0 }; 
     
-    // Spawn Enemies
+    // Spawn Enemies with RANDOM ANGLES
     const newEnemies: Enemy[] = [];
     for(let i=0; i<level.enemyCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = level.bossSpeed * (1 + i * 0.1); // Slight speed variance per enemy
         newEnemies.push({
-            x: GRID_WIDTH / 2 + (Math.random() * 10 - 5), 
-            y: GRID_HEIGHT / 2 + (Math.random() * 10 - 5), 
-            vx: level.bossSpeed * (Math.random() > 0.5 ? 1 : -1) * (1 + i * 0.2), 
-            vy: level.bossSpeed * (Math.random() > 0.5 ? 1 : -1) * (1 + i * 0.2),
-            type: 'BOSS'
+            x: GRID_WIDTH / 2 + (Math.random() * 6 - 3), 
+            y: GRID_HEIGHT / 2 + (Math.random() * 6 - 3), 
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            type: 'BOSS',
+            changeDirTimer: 500 + Math.random() * 2000 // Random initial timer
         });
     }
     enemiesRef.current = newEnemies;
@@ -146,6 +155,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     comboRef.current = { count: 1, lastActionTime: Date.now(), lastMoveTime: Date.now() };
     
     onLivesChange(3);
+    onProximityUpdate(0); // Reset audio drone
     
     draw(Date.now());
   };
@@ -265,8 +275,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
              // Collect!
              itemsRef.current.splice(i, 1);
              onItemCollect();
-             statsRef.current.score += 500;
-             spawnFloatingText(player.x, player.y - 1, "+500", COLOR_ITEM, 1.2);
+             
+             // SCORING LOGIC - DISABLED FOR LEVEL 0
+             if (level.id !== 0) {
+                 statsRef.current.score += 500;
+                 spawnFloatingText(player.x, player.y - 1, "+500", COLOR_ITEM, 1.2);
+             } else {
+                 spawnFloatingText(player.x, player.y - 1, "SIMULATION", COLOR_ITEM, 1.0);
+             }
+             
              spawnParticles(item.x, item.y, COLOR_ITEM, 10);
         }
     }
@@ -284,7 +301,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 const nextTile = grid[nextY][nextX];
 
                 if (nextTile === 2) {
-                    if (!isInvulnerable) handleDeath();
+                    // DEATH CHECK - DISABLED FOR LEVEL 0
+                    if (level.id !== 0 && !isInvulnerable) {
+                         handleDeath();
+                    }
                 } else if (nextTile === 1) {
                     player.isDrawing = true;
                     grid[nextY][nextX] = 2; 
@@ -308,8 +328,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
     }
 
-    // 6. Move Enemies (Loop)
+    // 6. Move Enemies (Loop) & Calculate Proximity
+    let minEnemyDist = Infinity;
+
     for (const enemy of enemies) {
+        // --- RANDOM DIRECTION CHANGE LOGIC ---
+        enemy.changeDirTimer -= dt;
+        if (enemy.changeDirTimer <= 0) {
+            // Change angle slightly to feel organic but unpredictable
+            const speed = Math.sqrt(enemy.vx*enemy.vx + enemy.vy*enemy.vy);
+            const currentAngle = Math.atan2(enemy.vy, enemy.vx);
+            
+            // Random perturbation +/- 60 degrees (approx 1 rad)
+            const perturbation = (Math.random() - 0.5) * 2.0; 
+            const newAngle = currentAngle + perturbation;
+            
+            enemy.vx = Math.cos(newAngle) * speed;
+            enemy.vy = Math.sin(newAngle) * speed;
+            
+            // Set next change time (1.5 to 3.5 seconds)
+            enemy.changeDirTimer = 1500 + Math.random() * 2000;
+        }
+
         let nextX = enemy.x + enemy.vx;
         let nextY = enemy.y + enemy.vy;
 
@@ -327,8 +367,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
            collision = true;
         }
         
-        // Trail Collision
-        if (!isInvulnerable && grid[tileY]?.[tileX] === 2) {
+        // Trail Collision - DISABLED FOR LEVEL 0
+        if (level.id !== 0 && !isInvulnerable && grid[tileY]?.[tileX] === 2) {
             handleDeath();
         }
         
@@ -336,7 +376,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const dx = player.x - enemy.x;
         const dy = player.y - enemy.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
-        if (!isInvulnerable && dist < 2) { 
+
+        // Update nearest enemy distance
+        if (dist < minEnemyDist) minEnemyDist = dist;
+
+        // DEATH CHECK - DISABLED FOR LEVEL 0
+        if (level.id !== 0 && !isInvulnerable && dist < 2) { 
             handleDeath();
         }
 
@@ -346,7 +391,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
     }
 
-    // 7. Update Stats
+    // 7. Calculate Audio Proximity Intensity
+    // Define a danger radius (e.g., 10 tiles)
+    // Intensity = 1 at dist 0, 0 at dist 10
+    const DETECTION_RADIUS = 12;
+    if (minEnemyDist < DETECTION_RADIUS) {
+         const intensity = 1 - (minEnemyDist / DETECTION_RADIUS);
+         onProximityUpdate(intensity);
+    } else {
+         onProximityUpdate(0);
+    }
+
+    // 8. Update Stats
     if (Math.random() > 0.9) {
          onStatsUpdate({...statsRef.current});
     }
@@ -447,8 +503,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             else if (grid[y][x] === 1) {
                 if (!visited.has(`${x},${y}`)) {
                     grid[y][x] = 0;
-                    // APPLY COMBO MULTIPLIER TO SCORE
-                    statsRef.current.score += 10 * combo; 
+                    
+                    // APPLY COMBO MULTIPLIER TO SCORE - DISABLED FOR LEVEL 0
+                    if (level.id !== 0) {
+                        statsRef.current.score += 10 * combo; 
+                    }
+
                     didCapture = true;
                     flashEffectsRef.current.push({ 
                         x, 
@@ -479,6 +539,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const handleDeath = () => {
     const player = playerRef.current;
     
+    // STOP PROXIMITY SOUND ON DEATH
+    onProximityUpdate(0);
+
     spawnParticles(player.x, player.y, COLOR_PARTICLE, 30);
     spawnParticles(player.x, player.y, '#ffffff', 10);
     
@@ -716,11 +779,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   return (
     <div className="relative rounded-lg overflow-hidden shadow-2xl border-4 border-slate-700 select-none bg-black">
-       {/* Background Image is always there, but covered by the canvas */}
-       <div 
-         className="absolute inset-0 z-0 bg-cover bg-center"
-         style={{ backgroundImage: `url(${level.imageUrl})` }}
+       {/* Use Image tag for background to allow onError fallback */}
+       <img 
+         src={level.imageUrl}
+         className="absolute inset-0 z-0 w-full h-full object-cover"
+         alt="Level Background"
+         onError={(e) => {
+            e.currentTarget.onerror = null;
+            // Fallback to anime scenery from Unsplash
+            e.currentTarget.src = `https://images.unsplash.com/photo-1636955860106-9eb89e576026?q=80&w=1080`;
+         }}
        />
+       
        <canvas
          ref={canvasRef}
          width={GRID_WIDTH * TILE_SIZE}

@@ -3,9 +3,12 @@ export enum GameStatus {
   MENU = 'MENU',
   PLAYING = 'PLAYING',
   PAUSED = 'PAUSED',
+  CONTINUE_SCREEN = 'CONTINUE_SCREEN', // New status for Continue countdown
   GAME_OVER = 'GAME_OVER',
   LEVEL_COMPLETE = 'LEVEL_COMPLETE',
-  LEADERBOARD = 'LEADERBOARD'
+  VIEW_IMAGE = 'VIEW_IMAGE', // New status to view image fullscreen
+  LEADERBOARD = 'LEADERBOARD',
+  NEW_HIGHSCORE = 'NEW_HIGHSCORE'
 }
 
 export type Language = 'ES' | 'EN' | 'FR';
@@ -47,6 +50,7 @@ export interface Enemy {
   vx: number;
   vy: number;
   type: 'BOSS' | 'MINION';
+  changeDirTimer: number; // For random movement behavior
 }
 
 export interface Item {

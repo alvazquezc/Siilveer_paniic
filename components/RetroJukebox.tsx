@@ -6,6 +6,7 @@ export interface RetroJukeboxRef {
   playDamageSound: () => void;
   playCaptureSound: () => void;
   playItemSound: () => void;
+  setProximityIntensity: (intensity: number) => void;
 }
 
 interface RetroJukeboxProps {
@@ -69,11 +70,17 @@ const GAME_OVER_SONG = {
 export const RetroJukebox = forwardRef<RetroJukeboxRef, RetroJukeboxProps>(({ levelIndex, gameStatus }, ref) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  
+  // Music Refs
   const nextNoteTimeRef = useRef<number>(0);
   const schedulerTimerRef = useRef<number>(0);
   const melodyIndexRef = useRef<number>(0);
   const bassIndexRef = useRef<number>(0);
   const currentSongRef = useRef(SONGS[0]);
+
+  // Proximity Drone Refs
+  const droneOscRef = useRef<OscillatorNode | null>(null);
+  const droneGainRef = useRef<GainNode | null>(null);
 
   // Handle song switching based on Level AND Game Status
   useEffect(() => {
@@ -105,8 +112,74 @@ export const RetroJukebox = forwardRef<RetroJukeboxRef, RetroJukeboxProps>(({ le
     playItemSound: () => {
       if (!audioContextRef.current || !isPlaying) return;
       playSfx('item');
+    },
+    setProximityIntensity: (intensity: number) => {
+       if (!audioContextRef.current || !isPlaying) return;
+       updateDrone(intensity);
     }
   }));
+
+  const updateDrone = (intensity: number) => {
+    // If we have refs, update them
+    if (droneOscRef.current && droneGainRef.current) {
+        const now = audioContextRef.current!.currentTime;
+        
+        // Clamp intensity 0-1
+        const val = Math.max(0, Math.min(1, intensity));
+        
+        // Calculate volume: 0 at far distance, up to 0.15 when close
+        // Use a slight curve for smoother fade in
+        const vol = val * val * 0.15;
+        
+        // Calculate Pitch: 50Hz base (Low hum) -> 90Hz (Tense hum)
+        const freq = 50 + (val * 40);
+
+        // Smooth transition
+        droneGainRef.current.gain.setTargetAtTime(vol, now, 0.1);
+        droneOscRef.current.frequency.setTargetAtTime(freq, now, 0.1);
+    }
+  };
+
+  const startDrone = (ctx: AudioContext) => {
+      if (droneOscRef.current) return; // Already started
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.value = 50; // Low hum base
+      
+      // Initial silent volume
+      gain.gain.value = 0;
+
+      // Lowpass filter to make it less harsh (optional, but 'sawtooth' can be buzzing)
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 200;
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+
+      droneOscRef.current = osc;
+      droneGainRef.current = gain;
+  };
+
+  const stopDrone = () => {
+      if (droneOscRef.current) {
+          try {
+            droneOscRef.current.stop();
+            droneOscRef.current.disconnect();
+          } catch (e) { /* ignore */ }
+          droneOscRef.current = null;
+      }
+      if (droneGainRef.current) {
+          droneGainRef.current.disconnect();
+          droneGainRef.current = null;
+      }
+  };
 
   const playSfx = (type: 'damage' | 'capture' | 'item') => {
     if (!audioContextRef.current) return;
@@ -165,14 +238,17 @@ export const RetroJukebox = forwardRef<RetroJukeboxRef, RetroJukeboxProps>(({ le
       if (audioContextRef.current) {
         audioContextRef.current.suspend();
       }
+      stopDrone(); // Stop the drone sound
       setIsPlaying(false);
     } else {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         nextNoteTimeRef.current = audioContextRef.current.currentTime + 0.1;
         scheduler();
+        startDrone(audioContextRef.current); // Init drone
       } else {
         audioContextRef.current.resume();
+        startDrone(audioContextRef.current); // Init drone if it was stopped
       }
       setIsPlaying(true);
     }
@@ -238,6 +314,7 @@ export const RetroJukebox = forwardRef<RetroJukeboxRef, RetroJukeboxProps>(({ le
   useEffect(() => {
     return () => {
       if (schedulerTimerRef.current) clearTimeout(schedulerTimerRef.current);
+      stopDrone(); // Ensure drone stops on unmount
       if (audioContextRef.current) audioContextRef.current.close();
     };
   }, []);

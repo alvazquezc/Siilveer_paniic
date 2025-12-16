@@ -17,7 +17,7 @@ export const COLOR_ITEM = '#fbbf24'; // Amber 400
 
 // Game logic
 export const PLAYER_SPEED_MS = 60; // Update interval for player movement
-export const BOSS_BASE_SPEED = 0.2; // Logical grid units per frame
+export const BOSS_BASE_SPEED = 0.1; // Reduced base logic speed
 export const INVULNERABILITY_TIME = 3000; // 3 Seconds blinking
 export const ITEM_LIFETIME = 6000; // 6 seconds
 
@@ -25,70 +25,78 @@ export const ITEM_LIFETIME = 6000; // 6 seconds
 export const COMBO_TIMEOUT_MS = 2500; // Increased to 2.5s for easier chaining
 export const IDLE_TIMEOUT_MS = 2000; // Increased to 2s before combo breaks from standing still
 
-// IMAGENES: 
-const getAnimeUrl = (prompt: string, seed: number) => 
-  `https://image.pollinations.ai/prompt/anime%20style%20${encodeURIComponent(prompt)}%20masterpiece%20high%20quality%208k?width=800&height=600&nologo=true&seed=${seed}`;
+// --- CONFIGURACIÓN DE IMÁGENES ---
+// Corrección de rutas: Usamos rutas relativas "assets/..." sin barra inicial.
+// Esto permite que funcione mejor si el juego no está servido desde la raíz absoluta.
 
-// Silver Character Avatars
 export const SILVER_AVATAR = {
-  NEUTRAL: getAnimeUrl("handsome man short black hair glasses goatee beard cool smile portrait", 901),
-  EXCITED: getAnimeUrl("handsome man short black hair glasses goatee beard excited winking victory sign anime", 902),
-  SAD: getAnimeUrl("man short black hair glasses goatee beard shocked scared dizzy anime face", 903),
-  DEFEATED: getAnimeUrl("handsome man short black hair glasses goatee beard lying on floor defeated knocked out dizzy eyes swirls anime", 904),
+  NEUTRAL: 'assets/avatars/silver_neutral.png',
+  EXCITED: 'assets/avatars/silver_excited.png',
+  SAD: 'assets/avatars/silver_sad.png',
+  DEFEATED: 'assets/avatars/silver_defeated.png',
 };
 
 export const LEVELS: LevelConfig[] = [
   {
+    id: 0,
+    name: "Simulation Zero",
+    imageUrl: 'assets/levels/level_0.png', // Fallback will handle this
+    difficulty: 0,
+    bossSpeed: 0.05, 
+    minRevealPercent: 60, // Easier for tutorial
+    enemyCount: 1
+  },
+  {
     id: 1,
-    name: "Cyber invitation",
-    imageUrl: getAnimeUrl("cyberpunk girl neon lights reaching out hand inviting viewer to play perspective", 201),
+    name: "Midnight Whisper",
+    imageUrl: 'assets/levels/level_1.png',
     difficulty: 1,
-    bossSpeed: 0.15,
+    bossSpeed: 0.08, 
     minRevealPercent: 75,
     enemyCount: 1
   },
   {
     id: 2,
-    name: "Forest Play",
-    imageUrl: getAnimeUrl("cute elf girl glowing magic forest winking playful finger on lips", 202),
+    name: "Azure Palace",
+    imageUrl: 'assets/levels/level_2.png',
     difficulty: 2,
-    bossSpeed: 0.25,
+    bossSpeed: 0.12,
     minRevealPercent: 80,
     enemyCount: 2
   },
   {
     id: 3,
-    name: "Cockpit Welcome",
-    imageUrl: getAnimeUrl("scifi girl pilot tight suit turning around in chair smiling at viewer welcoming", 203),
+    name: "Noir Elegance",
+    imageUrl: 'assets/levels/level_3.png',
     difficulty: 3,
-    bossSpeed: 0.35,
+    bossSpeed: 0.16,
     minRevealPercent: 80,
     enemyCount: 2
   },
   {
     id: 4,
-    name: "Gothic Gaze",
-    imageUrl: getAnimeUrl("gothic lolita girl dark castle sitting on throne looking down with interest", 204),
+    name: "Lunar Secret",
+    imageUrl: 'assets/levels/level_4.png',
     difficulty: 4,
-    bossSpeed: 0.45,
+    bossSpeed: 0.20,
     minRevealPercent: 85,
     enemyCount: 3
   },
   {
     id: 5,
-    name: "Divine Challenge",
-    imageUrl: getAnimeUrl("goddess divine girl galaxy hair arms open wide epic composition challenging viewer", 205),
+    name: "Violet Storm",
+    imageUrl: 'assets/levels/level_5.png',
     difficulty: 5,
-    bossSpeed: 0.6,
+    bossSpeed: 0.25,
     minRevealPercent: 90,
     enemyCount: 4
   },
   {
     id: 6,
-    name: "Celestial Queen",
-    imageUrl: getAnimeUrl("celestial queen anime girl stars nebula hair floating in space winking inviting mysterious", 206),
+    name: "Crimson Finale",
+    imageUrl: 'assets/levels/level_6.png',
     difficulty: 6,
-    bossSpeed: 0.7,
+    bossSpeed: 0.30,
     minRevealPercent: 92,
     enemyCount: 5
   }

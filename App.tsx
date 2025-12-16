@@ -4,8 +4,13 @@ import { VirtualJoystick } from './components/VirtualJoystick';
 import { RetroJukebox, RetroJukeboxRef } from './components/RetroJukebox';
 import { getGameCommentary } from './services/geminiService';
 import { LEVELS, MOCK_SCORES, TEASING_PHRASES, SILVER_AVATAR, TRANSLATIONS } from './constants';
-import { GameStatus, GameStats, Point, Language } from './types';
-import { Trophy, Play, Skull, RefreshCw, Zap, Heart, MessageSquare, Pause, PlayCircle, Star, ImageOff, Globe } from 'lucide-react';
+import { GameStatus, GameStats, Point, Language, ScoreEntry } from './types';
+import { Trophy, Play, Skull, RefreshCw, Zap, Heart, MessageSquare, Pause, PlayCircle, Star, ImageOff, Save, ChevronRight, Eye, X, Coins, Gamepad2, Trash2, Terminal, FastForward } from 'lucide-react';
+
+// VERSION CONTROL CONSTANT
+// Changing this forces a data reset for the user. 
+// Useful when changing core mechanics like level indices.
+const DATA_VERSION = 'v2.0_tutorial_update';
 
 export default function App() {
   const [status, setStatus] = useState<GameStatus>(GameStatus.MENU);
@@ -17,8 +22,23 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(false);
   const [language, setLanguage] = useState<Language>('ES');
   
+  // Progression Logic
+  const [unlockedLevels, setUnlockedLevels] = useState<number[]>([]);
+  const [continuesUsed, setContinuesUsed] = useState(0);
+  const [continueTimer, setContinueTimer] = useState(10);
+  
+  // High Score Logic
+  const [highScores, setHighScores] = useState<ScoreEntry[]>([]);
+  const [playerName, setPlayerName] = useState('AAA');
+  
+  // View Image Logic for Gallery
+  const [viewGalleryImage, setViewGalleryImage] = useState<string | null>(null);
+
   // Audio Ref
   const jukeboxRef = useRef<RetroJukeboxRef>(null);
+
+  // Safety Ref to prevent race conditions on quit
+  const isGameActiveRef = useRef(false);
 
   // Silver's Mood State
   const [silverMood, setSilverMood] = useState<'NEUTRAL' | 'EXCITED' | 'SAD' | 'DEFEATED'>('NEUTRAL');
@@ -26,6 +46,69 @@ export default function App() {
 
   // Banner state
   const [bannerText, setBannerText] = useState(TRANSLATIONS['ES'].instructions);
+
+  // Fallback Images (Anime Style)
+  const FALLBACK_AVATAR = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&q=80"; // Anime/Cosplay style girl
+  const FALLBACK_SCENERY = "https://images.unsplash.com/photo-1636955860106-9eb89e576026?q=80&w=1080"; // Cyberpunk City
+
+  // --- INITIALIZATION ---
+  useEffect(() => {
+      const storedVersion = localStorage.getItem('SIILVEER_DATA_VERSION');
+
+      // RESET LOGIC if version mismatch (forces Level 0 start)
+      if (storedVersion !== DATA_VERSION) {
+          console.log("New version detected or first run. Resetting progress to ensure correct flow.");
+          
+          // Clear old data
+          localStorage.removeItem('SIILVEER_PANIIC_UNLOCKS');
+          // We can optionally keep scores, but let's reset to be clean
+          // localStorage.removeItem('SIILVEER_PANIIC_SCORES'); 
+
+          // Set defaults
+          setUnlockedLevels([0]); // Only Level 0 is unlocked
+          
+          // Load or Mock Scores (preserving scores if we want, but versioning usually implies reset)
+          setHighScores(MOCK_SCORES);
+          
+          // Save new version
+          localStorage.setItem('SIILVEER_DATA_VERSION', DATA_VERSION);
+          localStorage.setItem('SIILVEER_PANIIC_UNLOCKS', JSON.stringify([0]));
+      } else {
+          // NORMAL LOAD
+          const storedScores = localStorage.getItem('SIILVEER_PANIIC_SCORES');
+          if (storedScores) {
+              setHighScores(JSON.parse(storedScores));
+          } else {
+              setHighScores(MOCK_SCORES);
+          }
+
+          const storedUnlocks = localStorage.getItem('SIILVEER_PANIIC_UNLOCKS');
+          if (storedUnlocks) {
+              const parsed = JSON.parse(storedUnlocks);
+              setUnlockedLevels(parsed);
+          } else {
+              setUnlockedLevels([0]);
+          }
+      }
+  }, []);
+
+  // Continue Timer Countdown
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    if (status === GameStatus.CONTINUE_SCREEN) {
+        timer = setInterval(() => {
+            setContinueTimer((prev) => {
+                if (prev <= 1) {
+                    clearInterval(timer);
+                    handleGiveUp(); // Auto give up
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [status]);
 
   // Update banner text when language changes
   useEffect(() => {
@@ -39,6 +122,8 @@ export default function App() {
     setStatus(prev => {
         if (prev === GameStatus.PLAYING) return GameStatus.PAUSED;
         if (prev === GameStatus.PAUSED) return GameStatus.PLAYING;
+        // Allow exiting fullscreen view with pause/esc
+        if (prev === GameStatus.VIEW_IMAGE) return GameStatus.LEVEL_COMPLETE;
         return prev;
     });
   }, []);
@@ -73,20 +158,21 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       
+      // Allow typing in High Score Input
+      if (status === GameStatus.NEW_HIGHSCORE) return;
+
       // Prevent scrolling on itch.io page
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'space', 'w', 'a', 's', 'd'].includes(key)) {
           e.preventDefault();
       }
 
-      // Logic for "Press any key to continue" when level is complete
-      if (status === GameStatus.LEVEL_COMPLETE) {
-          nextLevel();
-          return;
-      }
-
       // Pause shortcut
       if (key === 'p' || key === 'escape') {
-          togglePause();
+          if (viewGalleryImage) {
+             setViewGalleryImage(null);
+          } else {
+             togglePause();
+          }
           return;
       }
 
@@ -127,7 +213,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [status, currentLevelIndex, togglePause]); 
+  }, [status, currentLevelIndex, togglePause, viewGalleryImage]); 
 
   // Banner rotation logic
   useEffect(() => {
@@ -158,9 +244,16 @@ export default function App() {
       }, 1500);
   };
 
-  const startGame = (levelIndex: number) => {
+  const startGame = (levelIndex: number, resetScore: boolean = true) => {
+    isGameActiveRef.current = true; // Activar el juego
     setCurrentLevelIndex(levelIndex);
-    setStats({ areaRevealed: 0, timeElapsed: 0, score: 0 });
+    if (resetScore) {
+        setStats({ areaRevealed: 0, timeElapsed: 0, score: 0 });
+        setContinuesUsed(0);
+    } else {
+        // Reset only level specific stats, keep score
+        setStats(prev => ({ areaRevealed: 0, timeElapsed: 0, score: prev.score }));
+    }
     setLives(3); 
     setDirection({ x: 0, y: 0 });
     setStatus(GameStatus.PLAYING);
@@ -169,29 +262,114 @@ export default function App() {
     setBannerText(TRANSLATIONS[language].instructions);
   };
 
-  const handleGameOver = async (finalStats: GameStats) => {
-    setStatus(GameStatus.GAME_OVER);
+  // Called when player loses all lives
+  const handlePlayerDeath = (finalStats: GameStats) => {
+    if (!isGameActiveRef.current) return;
     setStats(finalStats);
     setSilverMood('DEFEATED');
-    setCommentary("...");
-    const text = await getGameCommentary('GAME_OVER', finalStats, LEVELS[currentLevelIndex].name, language);
-    setCommentary(text);
+    setContinueTimer(10);
+    setStatus(GameStatus.CONTINUE_SCREEN);
+  };
+
+  const handleContinue = () => {
+      isGameActiveRef.current = true;
+      // Penalty: Lose 30% of score
+      const penalty = Math.floor(stats.score * 0.3);
+      setStats(prev => ({ ...prev, score: Math.max(0, prev.score - penalty) }));
+      setContinuesUsed(prev => prev + 1);
+      
+      // Restart current level
+      startGame(currentLevelIndex, false);
+  };
+
+  const handleGiveUp = async () => {
+    // True Game Over
+    // Check for High Score logic here
+    const lowestScore = highScores.length < 10 ? 0 : highScores[highScores.length - 1].score;
+    
+    // Only allow high score if score > 0 and better than lowest
+    if (stats.score > 0 && stats.score > lowestScore) {
+        setStatus(GameStatus.NEW_HIGHSCORE);
+        setPlayerName('AAA'); 
+    } else {
+        setStatus(GameStatus.GAME_OVER);
+        setCommentary("...");
+        const text = await getGameCommentary('GAME_OVER', stats, LEVELS[currentLevelIndex].name, language);
+        setCommentary(text);
+    }
+  };
+
+  const submitHighScore = () => {
+      const newEntry: ScoreEntry = {
+          playerName: playerName.toUpperCase().substring(0, 3),
+          score: stats.score,
+          level: LEVELS[currentLevelIndex].id,
+          date: new Date().toISOString().split('T')[0]
+      };
+
+      const updatedScores = [...highScores, newEntry]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 10);
+      
+      setHighScores(updatedScores);
+      localStorage.setItem('SIILVEER_PANIIC_SCORES', JSON.stringify(updatedScores));
+      
+      setStatus(GameStatus.LEADERBOARD);
   };
 
   const handleLevelComplete = async (finalStats: GameStats) => {
+    // SECURITY CHECK: If game is not active (e.g., user quit), IGNORE win condition
+    if (!isGameActiveRef.current) return;
+
     setStatus(GameStatus.LEVEL_COMPLETE);
     setStats(finalStats);
     setSilverMood('EXCITED');
     setCommentary("...");
+    
+    // Unlock NEXT Level Logic
+    // currentLevelIndex correlates to LEVELS array index.
+    // If we just finished Level 0 (Index 0), next is Level 1 (Index 1).
+    const nextLevelIdx = currentLevelIndex + 1;
+    
+    if (nextLevelIdx < LEVELS.length) {
+        const nextLevelId = LEVELS[nextLevelIdx].id;
+        
+        // Ensure we add the NEXT level ID to unlocks if not present
+        if (!unlockedLevels.includes(nextLevelId)) {
+            const newUnlocks = [...unlockedLevels, nextLevelId];
+            setUnlockedLevels(newUnlocks);
+            localStorage.setItem('SIILVEER_PANIIC_UNLOCKS', JSON.stringify(newUnlocks));
+        }
+    }
+
     const text = await getGameCommentary('WIN', finalStats, LEVELS[currentLevelIndex].name, language);
     setCommentary(text);
+  };
+  
+  // Lógica específica para saltar el nivel 0
+  const handleSkipSimulation = () => {
+      // Forzamos active para permitir el skip
+      isGameActiveRef.current = true;
+      const mockStats = { ...stats, areaRevealed: 100, timeElapsed: 0 };
+      handleLevelComplete(mockStats);
+  };
+
+  // Función segura para salir al menú sin guardar progreso erróneo
+  const handleQuitToMenu = () => {
+      // CRITICAL: Kill the game session immediately.
+      // This prevents any pending frame in GameCanvas from triggering a win.
+      isGameActiveRef.current = false;
+      
+      setStats({ areaRevealed: 0, timeElapsed: 0, score: 0 });
+      setStatus(GameStatus.MENU);
   };
 
   const nextLevel = () => {
     if (currentLevelIndex + 1 < LEVELS.length) {
-      startGame(currentLevelIndex + 1);
+      startGame(currentLevelIndex + 1, false); // false = keep score
     } else {
-      startGame(0);
+      // Beat the game!
+      handleGiveUp(); // Trigger High Score check since game is done
     }
   };
 
@@ -212,6 +390,29 @@ export default function App() {
       jukeboxRef.current?.playItemSound();
       triggerSilverMood('EXCITED');
   };
+
+  const handleProximityUpdate = (intensity: number) => {
+      jukeboxRef.current?.setProximityIntensity(intensity);
+  };
+
+  const resetProgress = () => {
+     // Use a standard confirm dialog
+     const confirmed = window.confirm("¡ATENCIÓN! \n\n¿Estás seguro de que quieres BORRAR todo tu progreso y puntuaciones? \n\nEsta acción no se puede deshacer y la página se recargará.");
+     
+     if (confirmed) {
+        // Clear specific keys
+        localStorage.removeItem('SIILVEER_PANIIC_UNLOCKS');
+        localStorage.removeItem('SIILVEER_PANIIC_SCORES');
+        localStorage.removeItem('SIILVEER_DATA_VERSION'); // Clear version to force re-init
+        
+        // Force reload to clean slate
+        window.location.reload();
+     }
+  };
+
+  // Calculate highest unlocked level for Resume feature
+  // With Level 0 starting at index 0, we simply take the max ID
+  const maxUnlockedLevel = Math.max(...unlockedLevels, 0);
 
   // Helper component for the Arcade Logo
   const ArcadeLogo = () => (
@@ -251,11 +452,11 @@ export default function App() {
           
           <div className="absolute -top-8 md:-top-10 left-1/2 transform -translate-x-1/2 md:left-auto md:right-8 md:translate-x-0 w-16 h-16 md:w-20 md:h-20 bg-slate-800 rounded-full border-4 border-slate-600 z-10 overflow-hidden shadow-xl transition-transform hover:scale-110 flex items-center justify-center bg-black">
               <img 
-                 src={SILVER_AVATAR[silverMood === 'DEFEATED' ? 'SAD' : silverMood]} 
+                 src={SILVER_AVATAR[silverMood]} 
                  alt="Silver" 
                  onError={(e) => {
-                     e.currentTarget.style.display = 'none';
-                     e.currentTarget.parentElement?.classList.add('bg-slate-600');
+                     e.currentTarget.onerror = null; // Prevent infinite loop
+                     e.currentTarget.src = FALLBACK_AVATAR; // Anime Fallback
                  }}
                  className={`w-full h-full object-cover transition-all duration-300 ${silverMood === 'EXCITED' ? 'scale-110 brightness-110' : ''} ${silverMood === 'SAD' ? 'grayscale opacity-80' : ''}`}
               />
@@ -272,13 +473,19 @@ export default function App() {
           
           <div className="flex flex-wrap justify-center items-center gap-4 sm:gap-6 mt-2 md:mt-0 md:mr-24 w-full md:w-auto">
              <div className="flex items-center gap-1">
-                {[...Array(3)].map((_, i) => (
-                    <Heart 
-                        key={i} 
-                        size={20} 
-                        className={`${i < lives ? 'fill-red-500 text-red-500' : 'text-slate-600'} transition-all`} 
-                    />
-                ))}
+                {LEVELS[currentLevelIndex].id === 0 ? (
+                    <span className="text-green-400 font-bold text-xs tracking-widest animate-pulse border border-green-500/50 px-2 py-0.5 rounded bg-green-900/20">
+                        INF LIVES
+                    </span>
+                ) : (
+                    [...Array(3)].map((_, i) => (
+                        <Heart 
+                            key={i} 
+                            size={20} 
+                            className={`${i < lives ? 'fill-red-500 text-red-500' : 'text-slate-600'} transition-all`} 
+                        />
+                    ))
+                )}
              </div>
 
              <div className="h-6 w-px bg-slate-600 mx-1 sm:mx-2"></div>
@@ -292,8 +499,21 @@ export default function App() {
              
              <div className="flex flex-col items-center min-w-[50px]">
                 <span className="text-[10px] sm:text-xs text-slate-400">{TRANSLATIONS[language].score}</span>
-                <span className="font-mono text-base sm:text-lg text-yellow-400">{stats.score}</span>
+                <span className="font-mono text-base sm:text-lg text-yellow-400">
+                    {LEVELS[currentLevelIndex].id === 0 ? "---" : stats.score}
+                </span>
              </div>
+
+             {/* Skip Simulation Button (Only Level 0) */}
+             {LEVELS[currentLevelIndex].id === 0 && (
+                 <button
+                    onClick={handleSkipSimulation}
+                    className="ml-2 p-2 bg-green-900/40 hover:bg-green-600/60 rounded-full transition-colors text-green-400 hover:text-white border border-green-500/30"
+                    title="Skip Simulation"
+                 >
+                     <FastForward size={24} />
+                 </button>
+             )}
 
              <button 
                 onClick={togglePause}
@@ -311,7 +531,7 @@ export default function App() {
         
         {/* MENU - RETRO COVER STYLE */}
         {status === GameStatus.MENU && (
-          <div className="w-full flex flex-col items-center animate-fade-in relative z-10 overflow-y-auto max-h-full py-4 no-scrollbar">
+          <div className="w-full flex flex-col items-center animate-fade-in relative z-10 overflow-y-auto max-h-full py-4 pb-20 no-scrollbar">
             
             {/* Top Section: Logo & Silver */}
             <div className="flex flex-col md:flex-row items-center justify-center gap-8 mb-8 mt-4 w-full shrink-0">
@@ -340,8 +560,8 @@ export default function App() {
                     className="w-full h-full object-cover opacity-90" 
                     alt="Character" 
                     onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.parentElement?.classList.add('bg-slate-700');
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = FALLBACK_AVATAR;
                     }}
                   />
                   <div className="absolute bottom-0 w-full bg-black/80 text-center text-yellow-400 font-arcade text-xs py-1">
@@ -350,67 +570,86 @@ export default function App() {
                </div>
             </div>
 
-            {/* "Select Stage" Header */}
-            <div className="bg-blue-800/80 border-y-4 border-blue-500 w-full max-w-3xl py-2 mb-6 text-center transform skew-x-[-10deg] shrink-0">
-               <h2 className="text-xl md:text-2xl font-black text-white italic tracking-widest font-arcade animate-pulse transform skew-x-[10deg]">
-                 {TRANSLATIONS[language].menu_start}
-               </h2>
+            {/* START / CONTINUE BUTTONS */}
+            <div className="flex flex-col gap-4 mb-8 z-20 items-center">
+                {/* Only show Continue if we have passed Level 0 (so index is > 0) */}
+                {maxUnlockedLevel > 0 && (
+                    <button 
+                        onClick={() => startGame(maxUnlockedLevel)} 
+                        className="relative group px-12 py-6 bg-green-600 hover:bg-green-500 border-b-8 border-green-800 active:border-b-0 active:translate-y-2 rounded-xl transition-all shadow-[0_0_30px_rgba(34,197,94,0.6)] animate-bounce"
+                    >
+                        <div className="flex items-center gap-4 text-2xl md:text-3xl font-black italic text-white font-arcade uppercase tracking-widest">
+                                <PlayCircle size={40} className="animate-pulse" />
+                                CONTINUE LVL {maxUnlockedLevel}
+                        </div>
+                        <div className="absolute inset-0 rounded-xl border-4 border-white opacity-0 group-hover:opacity-100 animate-pulse transition-opacity pointer-events-none"></div>
+                    </button>
+                )}
+
+                <button 
+                    onClick={() => startGame(0)} 
+                    className={`relative group px-8 py-4 ${maxUnlockedLevel > 0 ? 'bg-slate-700 hover:bg-slate-600 border-slate-900 text-sm' : 'bg-red-600 hover:bg-red-500 border-red-800 text-3xl animate-bounce'} border-b-8 active:border-b-0 active:translate-y-2 rounded-xl transition-all shadow-xl`}
+                >
+                    <div className="flex items-center gap-3 font-black italic text-white font-arcade uppercase tracking-widest justify-center">
+                            <Gamepad2 size={maxUnlockedLevel > 0 ? 24 : 40} />
+                            {maxUnlockedLevel > 0 ? "RESTART (LVL 0)" : "START MISSION"}
+                    </div>
+                </button>
             </div>
             
-            {/* Retro Grid Selection */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 max-w-4xl mx-auto w-full px-4 shrink-0">
-              {LEVELS.map((level, idx) => (
-                <button
+            {/* Gallery Grid (VIEW ONLY) */}
+            <div className="bg-slate-800/80 w-full max-w-4xl p-2 rounded-t-lg mb-2 text-center text-slate-400 text-xs font-arcade uppercase tracking-widest">
+                 UNLOCKED GALLERY
+            </div>
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-2 md:gap-4 max-w-4xl mx-auto w-full px-4 shrink-0 pb-8">
+              {LEVELS.filter(l => l.id > 0).map((level, idx) => {
+                const isUnlocked = unlockedLevels.includes(level.id);
+                return (
+                <div
                   key={level.id}
-                  onClick={() => startGame(idx)}
-                  className="group relative bg-slate-800 border-4 border-slate-600 hover:border-pink-500 transition-all duration-100 hover:scale-105 active:scale-95 shadow-[4px_4px_0px_#000] overflow-hidden aspect-[4/3]"
+                  onClick={() => {
+                      if (isUnlocked) setViewGalleryImage(level.imageUrl);
+                  }}
+                  className={`group relative bg-slate-800 border-2 border-slate-600 overflow-hidden aspect-square rounded cursor-pointer transition-all ${isUnlocked ? 'hover:border-green-400 hover:scale-105' : 'opacity-50 cursor-not-allowed'}`}
                 >
                   <img 
                     src={level.imageUrl} 
-                    className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-all duration-500 blur-xl grayscale group-hover:grayscale-0 group-hover:blur-md" 
+                    className={`w-full h-full object-cover transition-all duration-500 ${isUnlocked ? 'grayscale-0' : 'blur-md grayscale opacity-50'}`} 
                     alt={level.name}
                     onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.parentElement?.classList.add('bg-slate-900');
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = FALLBACK_SCENERY;
                     }}
                   />
                   
-                  <div className="absolute inset-0 flex items-center justify-center -z-10">
-                     <ImageOff size={48} className="text-slate-700"/>
-                  </div>
-                  
-                  <div className="absolute inset-0 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAADCAYAAABS3WWCAAAAE0lEQVQIW2NkQAKrVq36zwjjgAAACOgC0fBM6zwAAAAASUVORK5CYII=')] opacity-30 pointer-events-none"></div>
+                  {isUnlocked && (
+                      <div className="absolute top-1 right-1 bg-green-500 text-white rounded-full p-0.5 shadow">
+                          <Eye size={10} />
+                      </div>
+                  )}
 
-                  <div className="absolute inset-0 flex flex-col justify-between p-2 bg-gradient-to-t from-black/90 to-transparent">
-                     <div className="self-end">
-                       <span className="font-arcade text-[10px] text-yellow-300 bg-black/50 px-1 border border-yellow-300">
-                         LVL {level.id}
-                       </span>
-                     </div>
-                     <div className="text-left">
-                       <div className="font-black text-sm text-white uppercase leading-none drop-shadow-md">{level.name}</div>
-                       <div className="flex gap-0.5 mt-1">
-                          {[...Array(level.difficulty)].map((_, i) => (
-                              <Star key={i} size={8} className="fill-yellow-400 text-yellow-400" />
-                          ))}
-                       </div>
-                     </div>
+                  <div className="absolute bottom-0 w-full bg-black/60 text-[8px] sm:text-[10px] text-white text-center py-1 truncate px-1">
+                      {isUnlocked ? level.name : 'LOCKED'}
                   </div>
-
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/40 transition-opacity">
-                      <span className="font-arcade text-xs text-red-500 animate-blink bg-black px-2 py-1 border border-red-500">
-                        PUSH START
-                      </span>
-                  </div>
-                </button>
-              ))}
+                </div>
+              )})}
             </div>
 
-            {/* Footer Credits */}
-            <div className="mt-8 mb-4 text-center shrink-0">
-               <button onClick={() => setStatus(GameStatus.LEADERBOARD)} className="font-arcade text-xs md:text-sm text-cyan-400 hover:text-white hover:underline mb-4 animate-pulse">
+            {/* Footer Credits and Controls */}
+            <div className="mt-auto mb-4 text-center shrink-0 flex flex-col items-center gap-4">
+               <button onClick={() => setStatus(GameStatus.LEADERBOARD)} className="font-arcade text-xs md:text-sm text-cyan-400 hover:text-white hover:underline animate-pulse">
                  [ {TRANSLATIONS[language].menu_scores} ]
                </button>
+               
+               {/* RESET PROGRESS BUTTON */}
+               <button 
+                  onClick={resetProgress}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-red-900/30 text-red-500 hover:text-red-400 border border-slate-700 hover:border-red-800 rounded-full transition-all text-xs z-50 cursor-pointer"
+                  title="Borrar progreso y recargar"
+               >
+                  <Trash2 size={14} /> BORRAR DATOS
+               </button>
+
                <div className="text-[10px] text-slate-500 font-mono uppercase">
                  © 2025 SIILVEER GAMES. {TRANSLATIONS[language].menu_credits}.<br/>
                  MADE WITH REACT & GEMINI.
@@ -419,18 +658,43 @@ export default function App() {
           </div>
         )}
 
+        {/* GALLERY FULLSCREEN VIEW (FROM MENU) */}
+        {viewGalleryImage && (
+             <div 
+                className="absolute inset-0 z-50 bg-black/95 flex items-center justify-center cursor-zoom-out animate-fade-in"
+                onClick={() => setViewGalleryImage(null)}
+             >
+                <img 
+                    src={viewGalleryImage}
+                    className="max-w-full max-h-full object-contain p-4 shadow-[0_0_50px_rgba(255,255,255,0.1)]"
+                    alt="Gallery View"
+                    onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = FALLBACK_SCENERY;
+                    }}
+                />
+                <button className="absolute top-4 right-4 text-white/50 hover:text-white">
+                    <X size={32} />
+                </button>
+                <div className="absolute bottom-8 text-white font-arcade text-sm bg-black/50 px-4 py-2 rounded-full border border-white/20">
+                    CLICK TO CLOSE
+                </div>
+             </div>
+        )}
+
         {/* GAME CANVAS */}
         {(status === GameStatus.PLAYING || status === GameStatus.PAUSED) && (
           <div className="relative w-full flex-1 flex items-center justify-center min-h-0">
              <GameCanvas 
                 level={LEVELS[currentLevelIndex]}
-                onGameOver={handleGameOver}
+                onGameOver={handlePlayerDeath}
                 onLevelComplete={handleLevelComplete}
                 onStatsUpdate={(s) => setStats(s)}
                 direction={direction}
                 onLivesChange={handleLivesChange}
                 onAreaCapture={handleAreaCapture}
                 onItemCollect={handleItemCollect}
+                onProximityUpdate={handleProximityUpdate}
                 isPaused={status === GameStatus.PAUSED}
                 language={language}
             />
@@ -442,6 +706,16 @@ export default function App() {
                         <p className="text-slate-400 mb-6">{TRANSLATIONS[language].pause_subtitle}</p>
                         
                         <div className="flex flex-col gap-3">
+                            {/* Skip Simulation in Pause Menu too (Only Level 0) */}
+                            {LEVELS[currentLevelIndex].id === 0 && (
+                                <button 
+                                    onClick={handleSkipSimulation}
+                                    className="px-6 py-3 bg-green-800/80 hover:bg-green-600 rounded-full font-bold flex items-center justify-center gap-2 text-green-200 transition-colors border border-green-500/50 mb-2"
+                                >
+                                    <FastForward size={20} /> SKIP SIMULATION
+                                </button>
+                            )}
+
                             <button 
                                 onClick={togglePause}
                                 className="px-6 py-3 bg-green-600 hover:bg-green-500 rounded-full font-bold flex items-center justify-center gap-2 transition-transform hover:scale-105"
@@ -449,7 +723,7 @@ export default function App() {
                                 <Play size={20} fill="white" /> {TRANSLATIONS[language].resume}
                             </button>
                             <button 
-                                onClick={() => setStatus(GameStatus.MENU)}
+                                onClick={handleQuitToMenu}
                                 className="px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-full font-bold flex items-center justify-center gap-2 text-slate-200 transition-colors"
                             >
                                 {TRANSLATIONS[language].quit}
@@ -466,14 +740,42 @@ export default function App() {
             <div className="relative w-full max-w-4xl animate-scale-up z-10 px-2">
                 <div className="relative rounded-lg p-1 bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500 animate-pulse shadow-[0_0_50px_rgba(236,72,153,0.6)]">
                     <div className="absolute inset-0 bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500 blur-lg opacity-75"></div>
-                    <img 
-                        src={LEVELS[currentLevelIndex].imageUrl} 
-                        className="relative z-10 block w-full h-auto max-h-[70vh] object-contain bg-black rounded-lg shadow-2xl mx-auto"
-                        alt="Level Complete Reward"
-                        onError={(e) => {
-                            e.currentTarget.src = 'https://placehold.co/600x400/000000/FFF?text=Level+Image+Missing';
-                        }}
-                    />
+                    
+                    {/* Click to view fullscreen - BUT NOT FOR LEVEL 0 (Tutorial) */}
+                    {LEVELS[currentLevelIndex].id !== 0 ? (
+                        <div 
+                            className="relative z-10 block w-full bg-black rounded-lg shadow-2xl mx-auto overflow-hidden cursor-zoom-in group"
+                            onClick={() => setStatus(GameStatus.VIEW_IMAGE)}
+                        >
+                            <img 
+                                src={LEVELS[currentLevelIndex].imageUrl} 
+                                className="w-full h-auto max-h-[70vh] object-contain transition-transform duration-500 group-hover:scale-105"
+                                alt="Level Complete Reward"
+                                onError={(e) => {
+                                    e.currentTarget.onerror = null;
+                                    e.currentTarget.src = FALLBACK_SCENERY;
+                                }}
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <span className="text-white font-bold flex items-center gap-2 bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm border border-white/20">
+                                    <Eye size={20} /> View Fullscreen
+                                </span>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="relative z-10 block w-full bg-slate-900 rounded-lg shadow-2xl mx-auto overflow-hidden border-4 border-slate-700 p-8 flex flex-col items-center justify-center min-h-[300px] mb-4">
+                             <Terminal className="text-green-500 w-16 h-16 mb-4 animate-pulse" />
+                             <h2 className="text-4xl md:text-6xl font-black text-green-500 font-arcade mb-4 text-center tracking-widest">
+                                SYSTEM READY
+                             </h2>
+                             <div className="font-mono text-green-400/80 text-sm md:text-base text-center max-w-md space-y-2">
+                                <p>{'>'} SIMULATION_SEQUENCE_COMPLETE</p>
+                                <p>{'>'} SENSORS_CALIBRATED: OK</p>
+                                <p>{'>'} COMBAT_MODULE: ONLINE</p>
+                                <p className="animate-pulse">{'>'} AWAITING_INPUT...</p>
+                             </div>
+                        </div>
+                    )}
                     
                     <div className="absolute bottom-0 left-0 right-0 bg-black/80 backdrop-blur-md p-4 sm:p-6 rounded-b-lg flex flex-col md:flex-row justify-between items-center gap-4 border-t border-white/10 z-20">
                          <div className="text-center md:text-left">
@@ -498,22 +800,106 @@ export default function App() {
                              </div>
                              <div className="flex gap-2">
                                 <button 
-                                    onClick={() => setStatus(GameStatus.MENU)}
-                                    className="px-4 py-2 bg-slate-700 rounded-full hover:bg-slate-600 font-bold text-sm"
-                                >
-                                    Menu
-                                </button>
-                                <button 
                                     onClick={nextLevel}
-                                    className="px-6 py-2 bg-green-600 hover:bg-green-500 rounded-full font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(34,197,94,0.5)] animate-bounce"
+                                    className="px-8 py-3 bg-green-600 hover:bg-green-500 rounded-full font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(34,197,94,0.5)] animate-bounce"
                                 >
-                                    <Play size={16} /> Next
+                                    <Play size={20} /> 
+                                    {currentLevelIndex < LEVELS.length - 1 ? "Next Level" : "Finish Game"}
                                 </button>
                              </div>
                          </div>
                     </div>
                 </div>
             </div>
+        )}
+
+        {/* FULLSCREEN IMAGE VIEW */}
+        {status === GameStatus.VIEW_IMAGE && (
+             <div 
+                className="absolute inset-0 z-50 bg-black flex items-center justify-center cursor-zoom-out"
+                onClick={() => setStatus(GameStatus.LEVEL_COMPLETE)}
+             >
+                <img 
+                    src={LEVELS[currentLevelIndex].imageUrl}
+                    className="max-w-full max-h-full object-contain"
+                    alt="Fullscreen Reward"
+                    onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = FALLBACK_SCENERY;
+                    }}
+                />
+                <button className="absolute top-4 right-4 text-white/50 hover:text-white">
+                    <X size={32} />
+                </button>
+             </div>
+        )}
+
+        {/* CONTINUE SCREEN */}
+        {status === GameStatus.CONTINUE_SCREEN && (
+            <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
+                 <div className="flex flex-col items-center animate-pulse">
+                     <h2 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-red-600 font-arcade mb-8">
+                         CONTINUE?
+                     </h2>
+                     
+                     <div className="text-9xl font-mono text-white mb-12 drop-shadow-[0_0_20px_rgba(255,0,0,0.8)]">
+                         {continueTimer}
+                     </div>
+                     
+                     <div className="flex flex-col gap-4 w-full max-w-sm">
+                         <button 
+                            onClick={handleContinue}
+                            className="w-full py-4 bg-green-600 hover:bg-green-500 text-white font-black text-xl uppercase rounded flex items-center justify-center gap-2 shadow-[0_4px_0_#15803d] active:shadow-none active:translate-y-[4px] transition-all"
+                         >
+                            <Coins size={24} className="text-yellow-300" />
+                            YES (-30% Score)
+                         </button>
+                         <button 
+                            onClick={handleGiveUp}
+                            className="w-full py-4 bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold text-sm uppercase rounded"
+                         >
+                            NO (GIVE UP)
+                         </button>
+                     </div>
+                     
+                     <div className="mt-8 text-slate-500 text-sm font-mono">
+                         CONTINUES USED: {continuesUsed}
+                     </div>
+                 </div>
+            </div>
+        )}
+
+        {/* NEW HIGH SCORE SCREEN (ARCADE ENTRY) */}
+        {status === GameStatus.NEW_HIGHSCORE && (
+             <div className="absolute inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                <div className="bg-slate-900 border-4 border-yellow-500 p-8 rounded-2xl w-full max-w-md shadow-[0_0_100px_rgba(234,179,8,0.3)] animate-bounce-slow text-center">
+                    <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4 animate-bounce" />
+                    <h2 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 font-arcade mb-2">NEW RECORD!</h2>
+                    <p className="text-slate-300 mb-6 font-arcade text-sm">ENTER YOUR INITIALS</p>
+                    
+                    <div className="flex justify-center mb-8">
+                        <input 
+                           autoFocus
+                           maxLength={3}
+                           value={playerName}
+                           onChange={(e) => setPlayerName(e.target.value.toUpperCase())}
+                           className="bg-black text-white text-6xl font-arcade text-center tracking-[0.5em] w-full max-w-[240px] border-b-4 border-white focus:border-yellow-400 outline-none uppercase p-2"
+                        />
+                    </div>
+
+                    <div className="mb-6">
+                        <div className="text-sm text-slate-400 uppercase">Score</div>
+                        <div className="text-3xl font-mono text-white">{stats.score}</div>
+                    </div>
+
+                    <button 
+                       onClick={submitHighScore}
+                       className="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-black font-black text-xl uppercase rounded shadow-[0_4px_0_#b45309] active:shadow-none active:translate-y-[4px] transition-all flex items-center justify-center gap-2"
+                    >
+                        <Save size={20} /> SAVE SCORE
+                    </button>
+                </div>
+             </div>
         )}
 
         {/* GAME OVER SCREEN */}
@@ -538,8 +924,8 @@ export default function App() {
                           src={SILVER_AVATAR.DEFEATED} 
                           alt="Defeated" 
                           onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                                e.currentTarget.parentElement?.classList.add('bg-slate-800');
+                                e.currentTarget.onerror = null;
+                                e.currentTarget.src = FALLBACK_AVATAR;
                           }}
                           className="w-full h-full object-cover opacity-80 grayscale-[50%]"
                       />
@@ -594,11 +980,11 @@ export default function App() {
                <Trophy /> {TRANSLATIONS[language].menu_scores}
              </h2>
              <div className="space-y-2">
-               {MOCK_SCORES.map((entry, i) => (
-                 <div key={i} className="flex justify-between items-center p-3 bg-slate-700/50 rounded hover:bg-slate-700 transition">
+               {highScores.map((entry, i) => (
+                 <div key={i} className={`flex justify-between items-center p-3 rounded hover:bg-slate-700 transition ${entry.date === new Date().toISOString().split('T')[0] ? 'bg-slate-600 border border-slate-500' : 'bg-slate-700/50'}`}>
                     <div className="flex items-center gap-4">
                       <span className={`font-bold w-6 sm:w-8 text-center ${i===0?'text-yellow-400':i===1?'text-slate-300':'text-orange-400'}`}>#{i+1}</span>
-                      <span className="truncate max-w-[120px] sm:max-w-none">{entry.playerName}</span>
+                      <span className="font-arcade tracking-wider">{entry.playerName}</span>
                     </div>
                     <div className="flex items-center gap-4 sm:gap-8 text-xs sm:text-sm text-slate-400">
                       <span>Lvl {entry.level}</span>
